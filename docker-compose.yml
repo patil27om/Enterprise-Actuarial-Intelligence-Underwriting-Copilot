@@ -1,0 +1,44 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: actuarial_api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-6-luna}
+      - CHROMA_PERSIST_DIR=/app/artifacts/chroma_db
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+    volumes:
+      - ./artifacts/chroma_db:/app/artifacts/chroma_db
+      - ./data/underwriting_policies:/app/data/underwriting_policies
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    networks:
+      - underwriting_net
+
+  ui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: actuarial_ui
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - API_URL=http://api:8000/api/v1/quote
+    depends_on:
+      - api
+    volumes:
+      - ./artifacts/chroma_db:/app/artifacts/chroma_db
+    command: ["streamlit", "run", "app/ui.py", "--server.port", "8501", "--server.address", "0.0.0.0"]
+    networks:
+      - underwriting_net
+
+networks:
+  underwriting_net:
+    driver: bridge

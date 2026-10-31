@@ -1,0 +1,12 @@
+# Python environment
+venv/
+__pycache__/
+*.pyc
+
+# Local environments & secrets
+.env
+
+# Docker and local storage artifacts
+artifacts/chroma_db/
+.pytest_cache/
+.DS_Store
