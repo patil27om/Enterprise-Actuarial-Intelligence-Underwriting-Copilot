@@ -25,93 +25,40 @@ This project bridges that gap by building an **Enterprise Underwriting Copilot**
 
 ### 🏗️ System Architecture
 
-+---------------------------------------------------------------------------------------------------------+
-|                                      Insurance Agent Dashboard                                          |
-|                                       (Streamlit / Port 8501)                                           |
-+----------------------------------------------------+----------------------------------------------------+
-                                                     |
-                                        POST /api/v1/quote (JSON)
-                                                     |
-                                                     v
-+---------------------------------------------------------------------------------------------------------+
-|                                    FastAPI Gateway (Port 8000)                                          |
-|                                                                                                         |
-|  [1. Live Public Enrichment Layer (MCP Tools)]                                                          |
-|      * Postal Geocoder (Zippopotam.us): Resolves ZIP -> City, State, Geographic Rating Region           |
-|      * CMS Open Benchmark Gateway: Fetches State Second-Lowest Cost Silver Plan (SLCSP) Baselines       |
-|                                                     |                                                   |
-|                      +------------------------------+-------------------------------+                   |
-|                      |                                                              |                   |
-|                      v                                                              v                   |
-|  [2. Actuarial Pricing Engine]                            [3. Local Regulatory Vector Store]            |
-|      * ACA 3:1 Monotonic Age Curve                            * Grounding: Title 45 CFR § 147.102       |
-|      * 45% Statutory Tobacco Load                             * Embeddings: all-MiniLM-L6-v2 ($0 CPU)   |
-|      * Metabolic BMI & Vitals Load                            * ChromaDB Persistent Local Storage       |
-|                      |                                                              |                   |
-|                      +------------------------------+-------------------------------+                   |
-|                                                     |                                                   |
-|                                                     v                                                   |
-|  [4. LangGraph Multi-Node State Machine]                                                                |
-|      * Workflow: [Enrich] -> [Price] -> <Conditional: Has Surcharges?> -> [Counterfactual]             |
-|                                                \                                 /                      |
-|                                                 +-----> [Retrieve] -> [Synthesize]                      |
-|      * LLM: gpt-6-luna (Low reasoning effort, structured audit synthesis)                               |
-+---------------------------------------------------------------------------------------------------------+
+[1. User Interface (Streamlit @ Port 8501)]
+  │
+  │  (HTTP POST /api/v1/quote with applicant JSON payload)
+  ▼
+[2. REST API Gateway (FastAPI @ Port 8000)]
+  │
+  │  (Validates payload schemas using Pydantic)
+  ▼
+[3. External Data Enrichment (MCP Tool Layer)]
+  ├── Postal Resolver (Zippopotam.us)  --> Identifies rating territory, city, & state
+  └── CMS Benchmark Open Data Gateway  --> Retrieves state-level Silver Plan base rate
+  │
+  ▼
+[4. Deterministic Actuarial Engine]
+  ├── Statutory 3:1 Age Curve (Title 45 CFR § 147.102)
+  ├── 45% Tobacco Surcharge Loading
+  ├── Metabolic Risk Add-ons (BMI > 25.0, Hypertension vitals)
+  └── Family Tier Adjustments (chargeable dependents capped at 3)
+  │
+  ▼
+[5. LangGraph Workflow Orchestrator]
+  ├── State Initialization (consolidates applicant data, location, & math pricing)
+  ├── Conditional Decision Split:
+  │     ├── [Has Surcharges]  --> Counterfactual Engine (computes exact reduction pathways)
+  │     └── [No Surcharges]   --> Bypass to Retrieval
+  ├── Policy Retrieval Node   --> Vector similarity search on local ChromaDB
+  │                               (embedded via all-MiniLM-L6-v2 on CPU)
+  └── Synthesis Node          --> Prompts GPT-6 Luna for grounded audit report
+  │
+  ▼
+[6. Response Delivery]
+  FastAPI returns full JSON payload (rates, counterfactuals, audit) back to Streamlit UI
 
 
-
-### 📂 Repository Structure
-
-insurance-actuarial-agent/
-├── docker-compose.yml               # Multi-container orchestration (API + UI)
-├── Dockerfile                       # Multi-stage container build (CPU-optimized PyTorch)
-├── entrypoint.sh                    # Container startup script (auto-seeds ChromaDB)
-├── pytest.ini                       # Test runner configuration
-├── requirements.txt                 # Application dependencies
-│
-├── data/
-│   └── underwriting_policies/       # Statutory regulatory manuals
-│       ├── aca_tobacco_rating.md    # Title 45 CFR § 147.102 surcharge rules
-│       ├── cms_age_curves.md        # Standard 3:1 age rating curves
-│       ├── metabolic_risk_tiers.md  # Clinical BMI & hypertension schedules
-│       └── family_dependents.md     # Child dependent allowances
-│
-├── artifacts/
-│   └── chroma_db/                   # Local persistent ChromaDB vector store
-│
-├── scripts/
-│   ├── seed_vectorstore.py          # Vector store ingestion runner
-│   ├── test_graph_run.py            # CLI test runner for LangGraph
-│   └── test_mcp_tools.py            # Direct MCP tool validation script
-│
-├── app/
-│   ├── main.py                      # FastAPI app entry point & CORS configuration
-│   ├── config.py                    # Environment settings parser
-│   ├── ui.py                        # Streamlit Agent Copilot UI
-│   │
-│   ├── api/                         # REST API Layer
-│   │   ├── routes.py                # Endpoints (/quote, /health)
-│   │   └── schemas.py               # Pydantic input/output schemas
-│   │
-│   ├── mcp_servers/                 # Model Context Protocol (MCP) Tools
-│   │   ├── geo_mcp.py               # Live postal resolver
-│   │   ├── cms_benchmarks_mcp.py    # CMS benchmark provider
-│   │   └── actuarial_calc_mcp.py    # Deterministic ACA calculator
-│   │
-│   ├── graph/                       # LangGraph Orchestration
-│   │   ├── state.py                 # UnderwritingState TypedDict
-│   │   ├── nodes.py                 # Graph execution nodes
-│   │   └── workflow.py              # Conditional edges & graph compiler
-│   │
-│   └── core/                        # Core Utilities
-│       ├── vectorstore.py           # ChromaDB client & embedding factory
-│       └── llm.py                   # GPT-6 Luna client configuration
-│
-└── tests/                           # Automated Test Suite (11 passing tests)
-    ├── test_actuarial_math.py       # Math & statutory curve unit tests
-    ├── test_mcp_services.py         # Live geocoding & CMS integration tests
-    ├── test_graph_state.py          # LangGraph state & routing tests
-    └── test_api_endpoints.py        # FastAPI contract & validation tests
 
 
 
